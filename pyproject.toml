@@ -1,0 +1,70 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ps3005d"
+version = "0.1.0"
+description = "Cross-platform control (GUI, CLI, MCP server) for the Velleman PS3005D lab power supply"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+    "pyserial>=3.5",
+]
+
+[project.optional-dependencies]
+gui = [
+    "PySide6>=6.7",
+    "pyqtgraph>=0.13",
+]
+mcp = [
+    "mcp>=1.2",
+]
+dev = [
+    "pytest>=8",
+    "ruff>=0.6",
+    "mypy>=1.11",
+    "types-pyserial",
+]
+
+[project.scripts]
+ps3005d = "ps3005d.cli:main"
+ps3005d-mcp = "ps3005d.mcp_server:main"
+
+[project.gui-scripts]
+ps3005d-gui = "ps3005d.gui.app:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ps3005d"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+# User-facing text uses typographic dashes on purpose.
+"src/ps3005d/gui/*.py" = ["RUF001"]
+"tests/test_gui.py" = ["RUF001"]
+"tests/test_i18n.py" = ["RUF001"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+mypy_path = "src"
+packages = ["ps3005d"]
+
+[[tool.mypy.overrides]]
+module = ["pyqtgraph.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q -m \"not hardware\""
+markers = [
+    "hardware: requires a real PS3005D connected (deselected by default; run with -m hardware)",
+]

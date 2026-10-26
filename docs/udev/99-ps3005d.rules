@@ -1,0 +1,4 @@
+# Velleman PS3005D / Korad KA3005P (Nuvoton USB CDC bridge).
+# Keep ModemManager from probing the supply with AT commands and give a stable name.
+# Install: sudo cp 99-ps3005d.rules /etc/udev/rules.d/ && sudo udevadm control --reload && sudo udevadm trigger
+SUBSYSTEM=="tty", ATTRS{idVendor}=="0416", ATTRS{idProduct}=="5011", ENV{ID_MM_DEVICE_IGNORE}="1", SYMLINK+="ps3005d", MODE="0660", GROUP="dialout"

@@ -1,0 +1,22 @@
+# Local AI agent memory
+.agents/memory/
+.env
+.secrets/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+build/
+dist/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+
+# Local captures / logs
+captures/
+*.log
+
+# Vendor software and manual (Velleman's copyright); keep locally, see README
+PC_SOFTWARE/
