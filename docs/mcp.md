@@ -38,7 +38,29 @@ automated hardware testing.
 | `store_memory(slot, volts, amps)` | only with `--allow-memory-write` |
 | `release_port` | output off, close port |
 
-## Setup
+## From the GUI (GUI and AI at the same time)
+
+Only one program can own the serial port, so instead of running `ps3005d-mcp` next to
+the GUI, let the GUI host the same tools: **AI (MCP)** tab → *Allow AI control*. The
+server listens on `http://127.0.0.1:8765/mcp` (local only; port configurable) and
+requires the bearer key shown in the tab. **Copy Claude Code command** gives:
+
+```bash
+claude mcp add --transport http ps3005d http://127.0.0.1:8765/mcp --header "Authorization: Bearer <key>"
+```
+
+- The AI's limits (max V / A / duration per call) and whether it may overwrite
+  memories are set in the tab; limit changes apply to the next call.
+- You see everything live in the graphs; the toolbar shows **AI: <tool>** while a tool
+  runs. The output button and Stop always work.
+- While the GUI runs a sequence, state-changing AI calls are refused (reading works).
+- `release_port` only switches the output off; the GUI keeps the port.
+- *New key* invalidates the old one at once. The key is stored in the GUI's user
+  settings (not in the repository).
+- Long tools (e.g. `run_sequence`) answer when done; make sure the client's timeout is
+  longer than the sequence.
+
+## Setup (standalone, without the GUI)
 
 Claude Code (Linux):
 

@@ -63,8 +63,10 @@ Polls at ~4–5 Hz (limited by the supply's command pacing).
 - Closing the window switches the output off (and writes waiting memories) unless
   "Output off on exit" is unchecked.
 
-Only one program can use the port at a time: don't run the GUI and the MCP server
-against the same supply simultaneously.
+Only one program can use the serial port. To let an AI test hardware while you watch
+in the GUI, enable **AI (MCP)** in the GUI instead of starting `ps3005d-mcp`: the GUI
+then serves the MCP tools on `http://127.0.0.1:8765/mcp` with a key
+([docs/mcp.md](docs/mcp.md)).
 
 ## MCP server (AI agents)
 

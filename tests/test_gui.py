@@ -1,6 +1,8 @@
 """Offscreen GUI tests against the simulator (skipped if PySide6 is not installed)."""
 
 import os
+import socket
+import threading
 from collections.abc import Callable, Iterator
 from pathlib import Path
 
@@ -10,6 +12,10 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 pytest.importorskip("PySide6")
 pytest.importorskip("pyqtgraph")
 
+import anyio
+import httpx2
+from mcp.client import Client
+from mcp.client.streamable_http import streamable_http_client
 from PySide6.QtCore import QEventLoop, QSettings, QTimer
 from PySide6.QtWidgets import QApplication
 
@@ -317,3 +323,114 @@ def test_sequence_with_ovp_on_asks(
     else:
         pump(500)
         assert not sim.output and sim.ovp
+
+
+def _free_port() -> int:
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return int(s.getsockname()[1])
+
+
+def _ai_call(win: MainWindow, tool: str, args: dict[str, object]) -> str:
+    """Call a tool over HTTP from a helper thread while the GUI event loop keeps running."""
+    panel = win.ai_panel
+    result: list[str] = []
+
+    async def go() -> None:
+        headers = {"Authorization": f"Bearer {panel._key}"}
+        async with (
+            httpx2.AsyncClient(headers=headers) as http,
+            Client(streamable_http_client(panel.endpoint, http_client=http)) as client,
+        ):
+            r = await client.call_tool(tool, args)
+            text = "".join(getattr(c, "text", "") for c in r.content)
+            result.append(("ERROR: " if r.is_error else "") + text)
+
+    t = threading.Thread(target=lambda: anyio.run(go))
+    t.start()
+    wait_until(lambda: not t.is_alive(), 15000)
+    return result[0]
+
+
+@pytest.fixture
+def ai(win: MainWindow) -> Iterator[MainWindow]:
+    win.ai_panel.port.setValue(_free_port())
+    win.ai_panel.enable.setChecked(True)
+    assert win.ai_panel.serving
+    yield win
+    win.ai_panel.enable.setChecked(False)
+    assert not win.ai_panel.serving
+
+
+def test_ai_controls_supply_through_gui(ai: MainWindow, sim: SimState) -> None:
+    seen: list[str] = []
+    ai.ai_panel.activity.connect(seen.append)
+    out = _ai_call(ai, "set_voltage_current", {"volts": 6, "amps": 0.5})
+    assert not out.startswith("ERROR"), out
+    assert sim.vset == 6.0
+    wait_until(lambda: ai.v_spin.value() == 6.0, 5000)  # GUI follows the AI's change
+    assert "set_voltage_current" in seen
+    assert ai.ai_indicator.text() == "AI: on"
+    out = _ai_call(ai, "set_voltage_current", {"volts": 20})
+    assert "allowed range" in out  # the GUI's AI limit (12 V default)
+
+
+def test_ai_blocked_during_gui_sequence(ai: MainWindow, sim: SimState) -> None:
+    _run_steps(ai, [Step(3, 0.5, 30)])
+    wait_until(lambda: sim.output)
+    out = _ai_call(ai, "set_output", {"on": False})
+    assert "running a sequence" in out
+    assert sim.output
+    assert not _ai_call(ai, "get_status", {}).startswith("ERROR")  # reading still works
+    ai.sequence_panel.stop_btn.click()
+    wait_until(lambda: not sim.output)
+
+
+def test_ai_memory_store_updates_gui(ai: MainWindow, sim: SimState) -> None:
+    ai.ai_panel.allow_memory.setChecked(True)  # restarts the server with store_memory
+    out = _ai_call(ai, "store_memory", {"slot": 3, "volts": 4.2, "amps": 0.42})
+    assert not out.startswith("ERROR"), out
+    assert sim.memory[3] == (4.2, 0.42)
+    wait_until(lambda: ai.mem_labels[3].text() == "4.20 V / 0.420 A", 5000)
+
+
+def test_ai_release_keeps_gui_connected(ai: MainWindow, sim: SimState) -> None:
+    ai.req_output.emit(True)
+    wait_until(lambda: sim.output)
+    _ai_call(ai, "release_port", {})
+    assert not sim.output
+    pump(500)
+    assert ai._connected and ai.connect_btn.text() == "Disconnect"
+
+
+def test_new_key_invalidates_old(ai: MainWindow) -> None:
+    old = ai.ai_panel._key
+    ai.ai_panel.new_key_btn.click()
+    assert ai.ai_panel._key != old and ai.ai_panel.serving
+    r = httpx2.post(ai.ai_panel.endpoint, json={}, headers={"Authorization": f"Bearer {old}"})
+    assert r.status_code == 401
+    assert ai.ai_panel._key in ai.ai_panel.claude_command()
+
+
+def test_ai_port_change_restarts_and_address_matches(ai: MainWindow) -> None:
+    new = _free_port()
+    ai.ai_panel.port.setValue(new)
+    assert ai.ai_panel.serving
+    assert ai.ai_panel.endpoint.endswith(f":{new}/mcp")
+    assert f":{new}/mcp" in ai.ai_panel.claude_command()
+    assert not _ai_call(ai, "get_status", {}).startswith("ERROR")
+
+
+def test_ai_server_starts_from_saved_setting(app: QApplication, sim: SimState) -> None:
+    first = MainWindow(port=SIM_PORT, sim_state=sim, language="en")
+    first.ai_panel.port.setValue(_free_port())
+    first.ai_panel.enable.setChecked(True)
+    port = first.ai_panel.port.value()
+    first.close()  # stops the server; "enabled" and the port stay saved
+    second = MainWindow(port=SIM_PORT, sim_state=sim, language="en")
+    try:
+        assert second.ai_panel.serving
+        assert second.ai_panel.endpoint.endswith(f":{port}/mcp")
+    finally:
+        second.ai_panel.enable.setChecked(False)
+        second.close()

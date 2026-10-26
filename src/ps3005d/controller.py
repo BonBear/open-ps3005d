@@ -52,22 +52,37 @@ class Limits:
 
 
 class Controller:
-    def __init__(self, open_supply: Callable[[], PowerSupply], limits: Limits) -> None:
+    def __init__(
+        self,
+        open_supply: Callable[[], PowerSupply],
+        limits: Limits,
+        *,
+        owns_port: bool = True,
+    ) -> None:
+        """``owns_port=False``: the supply belongs to a host (the GUI), which opened it and
+        keeps it open; ``open_supply`` is then called for every operation and ``release``
+        only switches the output off."""
         self._open_supply = open_supply
         self.limits = limits
+        self._owns_port = owns_port
         self._ps: PowerSupply | None = None
         self._lock = threading.RLock()
 
     # -- connection -------------------------------------------------------
 
     def _dev(self) -> PowerSupply:
+        if not self._owns_port:
+            return self._open_supply()  # the host's current connection
         if self._ps is None:
             self._ps = self._open_supply()
         return self._ps
 
     def release(self) -> dict[str, Any]:
-        """Switch the output off and close the port."""
+        """Switch the output off and close the port (shared port: output off only)."""
         with self._lock:
+            if not self._owns_port:
+                self._dev().output(False)
+                return {"connected": True, "output_on": False}
             if self._ps is not None:
                 try:
                     self._ps.close(output_off=True)

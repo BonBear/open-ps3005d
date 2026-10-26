@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
 )
 
 from ps3005d.gui import i18n
+from ps3005d.gui.ai_panel import AiPanel
 from ps3005d.gui.i18n import tr
 from ps3005d.gui.sequence_panel import SequencePanel
 from ps3005d.gui.worker import (
@@ -119,6 +120,7 @@ class MainWindow(QMainWindow):
     req_interval = Signal(int)
     req_start_sequence = Signal(object, int, bool)
     req_stop_sequence = Signal()
+    req_refresh_setpoints = Signal()
 
     def __init__(
         self,
@@ -149,6 +151,7 @@ class MainWindow(QMainWindow):
         self._setpoints: tuple[float, float] | None = None
         self._seq_running = False
         self._restore_ovp_after_seq = False
+        self._ai_tool = ""  # MCP tool currently running, "" when idle
         # control name -> monotonic time until which device read-backs are ignored
         self._hold: dict[str, float] = {}
         # Highest measured values since connect or the last reset.
@@ -187,6 +190,7 @@ class MainWindow(QMainWindow):
         self.req_interval.connect(w.set_interval)
         self.req_start_sequence.connect(w.start_sequence)
         self.req_stop_sequence.connect(w.stop_sequence)
+        self.req_refresh_setpoints.connect(w.refresh_setpoints)
         w.sequence_progress.connect(self._on_seq_progress)
         w.sequence_finished.connect(self._on_seq_finished)
         w.connected.connect(self._on_connected)
@@ -218,6 +222,11 @@ class MainWindow(QMainWindow):
         self.tabs = QTabWidget()
         self.tabs.addTab(manual, "")
         self.tabs.addTab(self.sequence_panel, "")
+        self.ai_panel = AiPanel(self._settings, self.worker.current_supply, self._ai_blocked)
+        self.ai_panel.memory_stored.connect(self.worker.note_memory)
+        self.ai_panel.activity.connect(self._on_ai_activity)
+        self.ai_panel.server_state.connect(lambda _on: self._on_ai_activity(""))
+        self.tabs.addTab(self.ai_panel, "")
         lv.addWidget(self.tabs, 1)
         splitter.addWidget(left)
         splitter.addWidget(self._build_plots())
@@ -272,6 +281,9 @@ class MainWindow(QMainWindow):
         self.off_on_exit.setChecked(True)
         bar.addWidget(self.off_on_exit)
         bar.addStretch(1)
+        self.ai_indicator = QLabel("")
+        bar.addWidget(self.ai_indicator)
+        bar.addSpacing(12)
         self.identity = QLabel("")
         bar.addWidget(self.identity)
         return bar
@@ -468,7 +480,10 @@ class MainWindow(QMainWindow):
         self.memory_group.setTitle(tr("Memories"))
         self.tabs.setTabText(0, tr("Manual"))
         self.tabs.setTabText(1, tr("Sequence"))
+        self.tabs.setTabText(2, tr("AI (MCP)"))
         self.sequence_panel.retranslate()
+        self.ai_panel.retranslate()
+        self._on_ai_activity(self._ai_tool)
         for rcl, sto in self._mem_buttons:
             rcl.setText(tr("Recall"))
             rcl.setToolTip(tr("Load into the setpoints (the output stays as it is)"))
@@ -658,6 +673,26 @@ class MainWindow(QMainWindow):
         message = tr(SEQ_MESSAGES.get(reason, SEQ_MESSAGES[SEQ_ERROR]))
         self.sequence_panel.show_message(message)
         self.statusBar().showMessage(message, 10000)
+
+    def _ai_blocked(self) -> str | None:
+        # Called from MCP server threads; reads one bool.
+        if self._seq_running:
+            return "the GUI is running a sequence; try again when it has finished"
+        return None
+
+    def _on_ai_activity(self, tool: str) -> None:
+        if self._ai_tool and not tool and self._connected:
+            self.req_refresh_setpoints.emit()  # the AI may have changed them
+        self._ai_tool = tool
+        if not self.ai_panel.serving:
+            self.ai_indicator.setText("")
+            self.ai_indicator.setStyleSheet("")
+        elif tool:
+            self.ai_indicator.setText(tr("AI: {tool}", tool=tool))
+            self.ai_indicator.setStyleSheet("color: white; background: #b26a00; padding: 2px 6px;")
+        else:
+            self.ai_indicator.setText(tr("AI: on"))
+            self.ai_indicator.setStyleSheet("color: #b26a00; font-weight: bold;")
 
     def _held(self, name: str) -> bool:
         return time.monotonic() < self._hold.get(name, 0.0)
@@ -858,6 +893,7 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event: QCloseEvent) -> None:
         self._redraw.stop()
         self._close_log()
+        self.ai_panel.shutdown()
         # Runs in the worker thread; blocks until the port is closed.
         self.req_shutdown.emit(self.off_on_exit.isChecked())
         self._thread.quit()

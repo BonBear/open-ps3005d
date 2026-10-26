@@ -66,30 +66,58 @@ def _guard(fn: Callable[[], T]) -> T:
         raise ToolError(str(exc)) from exc
 
 
-def build_server(ctl: Controller, *, allow_memory_write: bool = False) -> MCPServer:
+# Tools that only read; everything else may be refused through ``blocked``.
+READ_TOOLS = {"get_info", "get_status", "measure"}
+
+
+def build_server(
+    ctl: Controller,
+    *,
+    allow_memory_write: bool = False,
+    on_activity: Callable[[str | None], None] | None = None,
+    blocked: Callable[[], str | None] | None = None,
+    on_memory_stored: Callable[[int, float, float], None] | None = None,
+) -> MCPServer:
+    """Build the server. The optional hooks let a host (the GUI) follow and gate calls:
+
+    * ``on_activity(name)`` before a tool runs and ``on_activity(None)`` after it,
+    * ``blocked()`` returns a reason to refuse state-changing tools, or None,
+    * ``on_memory_stored(slot, volts, amps)`` after store_memory succeeded.
+    """
     mcp = MCPServer(name="ps3005d", version=__version__, instructions=INSTRUCTIONS)
+
+    def run(name: str, fn: Callable[[], T]) -> T:
+        if blocked is not None and name not in READ_TOOLS and (reason := blocked()):
+            raise ToolError(reason)
+        if on_activity is not None:
+            on_activity(name)
+        try:
+            return _guard(fn)
+        finally:
+            if on_activity is not None:
+                on_activity(None)
 
     @mcp.tool(annotations=READ_ONLY)
     def get_info() -> dict[str, Any]:
         """Identify the supply and return the operator's safety limits."""
-        return _guard(lambda: ctl.info())
+        return run("get_info", lambda: ctl.info())
 
     @mcp.tool(annotations=READ_ONLY)
     def get_status() -> dict[str, Any]:
         """Output state, CV/CC mode, OVP/OCP flags, setpoints and measured V/I/P."""
-        return _guard(lambda: ctl.status())
+        return run("get_status", lambda: ctl.status())
 
     @mcp.tool(annotations=CONTROL)
     def set_voltage_current(
         volts: float | None = None, amps: float | None = None
     ) -> dict[str, Any]:
         """Set the voltage setpoint and/or current limit. Does not switch the output on."""
-        return _guard(lambda: ctl.set_setpoints(volts, amps))
+        return run("set_voltage_current", lambda: ctl.set_setpoints(volts, amps))
 
     @mcp.tool(annotations=ENERGIZE)
     def set_output(on: bool) -> dict[str, Any]:
         """Switch the output on or off. Returns the status after the output settled."""
-        return _guard(lambda: ctl.set_output(on))
+        return run("set_output", lambda: ctl.set_output(on))
 
     @mcp.tool(annotations=CONTROL)
     def set_protection(ocp: bool | None = None, ovp: bool | None = None) -> dict[str, Any]:
@@ -98,12 +126,12 @@ def build_server(ctl: Controller, *, allow_memory_write: bool = False) -> MCPSer
         With OCP on, the supply cuts the output instead of entering CC mode when the
         current limit is reached; with OVP on, it cuts the output above the voltage setpoint.
         """
-        return _guard(lambda: ctl.set_protection(ocp, ovp))
+        return run("set_protection", lambda: ctl.set_protection(ocp, ovp))
 
     @mcp.tool(annotations=READ_ONLY)
     def measure(samples: int = 1, interval_s: float = 0.5) -> dict[str, Any]:
         """Measure output voltage/current/power, optionally several samples with min/max/mean."""
-        return _guard(lambda: ctl.measure(samples, interval_s))
+        return run("measure", lambda: ctl.measure(samples, interval_s))
 
     @mcp.tool(annotations=ENERGIZE)
     def sweep_voltage(
@@ -117,16 +145,17 @@ def build_server(ctl: Controller, *, allow_memory_write: bool = False) -> MCPSer
         """Switch the output on and step the voltage from start to stop, measuring at each
         step (e.g. an I-V curve or brown-out test). The output is switched off afterwards
         unless leave_output_on is true, and always if the output trips."""
-        return _guard(
+        return run(
+            "sweep_voltage",
             lambda: ctl.sweep_voltage(
                 start_volts, stop_volts, step_volts, current_limit_amps, dwell_s, leave_output_on
-            )
+            ),
         )
 
     @mcp.tool(annotations=CONTROL)
     def recall_memory(slot: int) -> dict[str, Any]:
         """Load memory M1-M5 into the active setpoints. Switches the output off."""
-        return _guard(lambda: ctl.recall_memory(slot))
+        return run("recall_memory", lambda: ctl.recall_memory(slot))
 
     if allow_memory_write:
         # Off by default: the memories belong to the bench user (front panel).
@@ -134,7 +163,10 @@ def build_server(ctl: Controller, *, allow_memory_write: bool = False) -> MCPSer
         def store_memory(slot: int, volts: float, amps: float) -> dict[str, Any]:
             """Program memory M1-M5 with voltage/current, without changing the active setpoints.
             Overwrites what the user stored in that slot."""
-            return _guard(lambda: ctl.store_memory(slot, volts, amps))
+            result = run("store_memory", lambda: ctl.store_memory(slot, volts, amps))
+            if on_memory_stored is not None:
+                on_memory_stored(slot, volts, amps)
+            return result
 
     @mcp.tool(annotations=ENERGIZE)
     def run_sequence(
@@ -150,13 +182,16 @@ def build_server(ctl: Controller, *, allow_memory_write: bool = False) -> MCPSer
         is the operator's limit). Note: with OVP enabled this supply often cuts the output
         when the voltage setpoint changes; switch OVP off for sequences that change voltage."""
         plan = [Step(s.volts, s.amps, s.seconds) for s in steps]
-        return _guard(lambda: ctl.run_sequence(plan, repeat, leave_output_on, sample_interval_s))
+        return run(
+            "run_sequence",
+            lambda: ctl.run_sequence(plan, repeat, leave_output_on, sample_interval_s),
+        )
 
     @mcp.tool(annotations=CONTROL)
     def release_port() -> dict[str, Any]:
         """Switch the output off and close the serial port so another program can use it.
         Any other tool reopens it."""
-        return _guard(lambda: ctl.release())
+        return run("release_port", lambda: ctl.release())
 
     return mcp
 

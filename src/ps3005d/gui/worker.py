@@ -26,7 +26,7 @@ from dataclasses import dataclass
 from PySide6.QtCore import QObject, QTimer, Signal, Slot
 
 from ps3005d import sequence as seq
-from ps3005d.device import PowerSupply
+from ps3005d.device import DeviceError, PowerSupply
 from ps3005d.gui.i18n import tr
 from ps3005d.protocol import MEMORY_SLOTS, Mode
 from ps3005d.sequence import Step
@@ -109,6 +109,13 @@ class DeviceWorker(QObject):
                 self.disconnect_device()
             return False
         return True
+
+    def current_supply(self) -> PowerSupply:
+        """For the GUI-hosted MCP server, which shares this connection (any thread)."""
+        ps = self._ps
+        if ps is None:
+            raise DeviceError("the GUI is not connected to the supply")
+        return ps
 
     def _dev(self) -> PowerSupply:
         assert self._ps is not None
@@ -317,6 +324,18 @@ class DeviceWorker(QObject):
                 self._store_now(slot, volts, amps)
 
         self._run(store)
+
+    @Slot()
+    def refresh_setpoints(self) -> None:
+        """Re-read the setpoints now (e.g. after the AI changed them)."""
+        if self._ps is not None:
+            self._run(self._emit_setpoints)
+
+    @Slot(int, float, float)
+    def note_memory(self, slot: int, volts: float, amps: float) -> None:
+        """Someone else (the AI) stored a memory; keep the cache right."""
+        self._mem[slot] = (volts, amps)
+        self.memory_slot.emit(slot, volts, amps, SAVED)
 
     @Slot()
     def read_memories(self) -> None:
