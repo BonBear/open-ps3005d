@@ -6,6 +6,8 @@ import argparse
 import os
 import sys
 import time
+from collections.abc import Iterator
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
 
 from ps3005d import __version__
@@ -56,6 +58,16 @@ def _open(args: argparse.Namespace) -> PowerSupply:
     return PowerSupply.open(_resolve_port(args.port))
 
 
+@contextmanager
+def _session(args: argparse.Namespace) -> Iterator[PowerSupply]:
+    """Open the supply for one command. The output is left as it is on exit."""
+    ps = _open(args)
+    try:
+        yield ps
+    finally:
+        ps.close(output_off=False)
+
+
 def _print_state(ps: PowerSupply) -> None:
     st = ps.status()
     m = ps.measure()
@@ -81,54 +93,41 @@ def cmd_ports(_: argparse.Namespace) -> int:
 
 def cmd_probe(args: argparse.Namespace) -> int:
     """Read-only check of every query; prints raw replies so the protocol can be verified."""
-    ps = _open(args)
-    try:
+    with _session(args) as ps:
         for q in PROBE_QUERIES:
             reply = ps.raw_query(q)
             print(f"{q:8} -> {reply!r:40} hex={reply.hex(' ') or '(no reply)'}")
-    finally:
-        ps.close(output_off=False)
     return 0
 
 
 def cmd_status(args: argparse.Namespace) -> int:
-    ps = _open(args)
-    try:
+    with _session(args) as ps:
         print(ps.identify())
         _print_state(ps)
-    finally:
-        ps.close(output_off=False)
     return 0
 
 
 def cmd_set(args: argparse.Namespace) -> int:
     if args.volts is None and args.amps is None:
         raise SystemExit("give --volts and/or --amps")
-    ps = _open(args)
-    try:
+    with _session(args) as ps:
         if args.amps is not None:
             ps.set_current(args.amps)
         if args.volts is not None:
             ps.set_voltage(args.volts)
         _print_state(ps)
-    finally:
-        ps.close(output_off=False)
     return 0
 
 
 def cmd_switch(args: argparse.Namespace) -> int:
-    ps = _open(args)
-    try:
-        getattr(ps, args.command)(args.state)
+    with _session(args) as ps:
+        getattr(ps, args.command)(args.state)  # output / ocp / ovp
         _print_state(ps)
-    finally:
-        ps.close(output_off=False)
     return 0
 
 
 def cmd_memory(args: argparse.Namespace) -> int:
-    ps = _open(args)
-    try:
+    with _session(args) as ps:
         if args.command == "save":
             ps.save(args.slot)
         elif args.command == "recall":
@@ -136,47 +135,41 @@ def cmd_memory(args: argparse.Namespace) -> int:
         else:
             ps.store_memory(args.slot, args.volts, args.amps)
         _print_state(ps)
-    finally:
-        ps.close(output_off=False)
     return 0
 
 
 def cmd_raw(args: argparse.Namespace) -> int:
-    ps = _open(args)
-    try:
+    with _session(args) as ps:
         if args.cmd.endswith("?"):
             reply = ps.raw_query(args.cmd)
             print(f"{reply!r} hex={reply.hex(' ') or '(no reply)'}")
         else:
             ps.raw_write(args.cmd)
-    finally:
-        ps.close(output_off=False)
     return 0
 
 
 def cmd_monitor(args: argparse.Namespace) -> int:
-    ps = _open(args)
-    out = open(args.csv, "w", encoding="utf-8") if args.csv else None  # noqa: SIM115
-    try:
+    with ExitStack() as stack:
+        ps = stack.enter_context(_session(args))
+        out = stack.enter_context(Path(args.csv).open("w", encoding="utf-8")) if args.csv else None
         if out:
             out.write("t_s,volts,amps,watts\n")
         t0 = time.monotonic()
         n = 0
-        while args.count <= 0 or n < args.count:
-            if n:
-                time.sleep(args.interval)
-            m = ps.measure()
-            t = time.monotonic() - t0
-            print(f"{t:8.2f} s  {m.volts:6.2f} V  {m.amps:6.3f} A  {m.watts:7.3f} W", flush=True)
-            if out:
-                out.write(f"{t:.3f},{m.volts:.2f},{m.amps:.3f},{m.watts:.4f}\n")
-            n += 1
-    except KeyboardInterrupt:
-        pass
-    finally:
-        if out:
-            out.close()
-        ps.close(output_off=False)
+        try:
+            while args.count <= 0 or n < args.count:
+                if n:
+                    time.sleep(args.interval)
+                m = ps.measure()
+                t = time.monotonic() - t0
+                print(
+                    f"{t:8.2f} s  {m.volts:6.2f} V  {m.amps:6.3f} A  {m.watts:7.3f} W", flush=True
+                )
+                if out:
+                    out.write(f"{t:.3f},{m.volts:.2f},{m.amps:.3f},{m.watts:.4f}\n")
+                n += 1
+        except KeyboardInterrupt:
+            pass
     return 0
 
 
@@ -231,7 +224,10 @@ def build_parser() -> argparse.ArgumentParser:
         s.add_argument("state", type=_on_off)
         s.set_defaults(func=cmd_switch)
 
-    for name, text in (("save", "save active setpoints to"), ("recall", "recall (output off)")):
+    for name, text in (
+        ("save", "save the current setpoints to a"),
+        ("recall", "recall (output off) a"),
+    ):
         s = sub.add_parser(name, help=f"{text} memory slot")
         s.add_argument("slot", type=int, choices=p.MEMORY_SLOTS)
         s.set_defaults(func=cmd_memory)

@@ -29,11 +29,12 @@
   - **Front-panel memories are user data**: never overwrite M1–M5 without the user's consent; hardware tests must restore what they change.
   - Must run on Windows and Linux: no POSIX-only APIs; use `serial.tools.list_ports` for port discovery.
 - **Documentation Map** (link instead of duplicating content):
-  - `README.md` — concise project overview and quickstart.
-  - `docs/protocol.md` — wire protocol and verification status.
-  - `docs/` — architecture, setup, and usage documentation.
-  - `PC_SOFTWARE/PS3005D user manual.pdf` — vendor manual (front panel, memories, OVP/OCP behavior).
-  - `CHANGELOG.md` — update with every user-visible change (if present).
+  - `README.md` — project overview, install, usage (screenshots in `docs/images/`, regenerate with the simulator).
+  - `docs/protocol.md` — wire protocol, firmware quirks and verification status.
+  - `docs/mcp.md` — MCP tools, safety model, client setup (standalone and GUI-hosted).
+  - `CONTRIBUTING.md` — contributor guidelines; `CHANGELOG.md` — update with every user-visible change.
+  - `PC_SOFTWARE/` — vendor app + manual, local only (Velleman's copyright, git-ignored).
+  - CI: `.github/workflows/ci.yml` runs the quality gates on Linux + Windows, Python 3.11–3.13.
 - **Git Hygiene**:
   - Commit only when explicitly asked by the user.
   - Never commit `.agents/memory/`, build artifacts, local captures, or temporary debug files.

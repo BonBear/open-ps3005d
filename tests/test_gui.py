@@ -44,7 +44,7 @@ def wait_until(cond: Callable[[], bool], timeout_ms: int = 3000) -> None:
 def app(tmp_path_factory: pytest.TempPathFactory) -> QApplication:
     # Keep the language setting out of the user's real config.
     QSettings.setPath(
-        QSettings.Format.NativeFormat,
+        QSettings.Format.IniFormat,
         QSettings.Scope.UserScope,
         str(tmp_path_factory.mktemp("settings")),
     )

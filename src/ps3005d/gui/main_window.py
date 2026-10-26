@@ -130,7 +130,11 @@ class MainWindow(QMainWindow):
     ) -> None:
         super().__init__()
         self.setWindowTitle("PS3005D")
-        self._settings = QSettings("ps3005d", "ps3005d")
+        # INI file on every OS (not the Windows registry): ~/.config/ps3005d/ps3005d.ini,
+        # %APPDATA%\ps3005d\ps3005d.ini.
+        self._settings = QSettings(
+            QSettings.Format.IniFormat, QSettings.Scope.UserScope, "ps3005d", "ps3005d"
+        )
         saved = self._settings.value(SETTINGS_LANGUAGE)
         lang = language or (saved if saved in i18n.LANGUAGES else i18n.system_language())
         i18n.set_language(str(lang))

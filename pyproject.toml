@@ -1,25 +1,46 @@
 [build-system]
-requires = ["hatchling>=1.25"]
+requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [project]
 name = "ps3005d"
 version = "0.1.0"
-description = "Cross-platform control (GUI, CLI, MCP server) for the Velleman PS3005D lab power supply"
+description = "Control the Velleman PS3005D lab power supply from Windows and Linux: GUI with live graphs, CLI and an MCP server for AI-driven hardware testing"
 readme = "README.md"
 requires-python = ">=3.11"
-license = { text = "MIT" }
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Björn Sjölén" }]
+keywords = ["velleman", "ps3005d", "korad", "ka3005p", "power supply", "lab", "mcp", "instrumentation"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: X11 Applications :: Qt",
+    "Environment :: Win32 (MS Windows)",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Developers",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering",
+    "Topic :: System :: Hardware",
+    "Typing :: Typed",
+]
 dependencies = [
     "pyserial>=3.5",
 ]
 
 [project.optional-dependencies]
+mcp = [
+    "mcp>=2.3,<3",
+    "uvicorn>=0.30",
+]
 gui = [
+    "ps3005d[mcp]",  # the GUI can host the MCP server (AI tab)
     "PySide6>=6.7",
     "pyqtgraph>=0.13",
-]
-mcp = [
-    "mcp>=1.2",
 ]
 dev = [
     "pytest>=8",
@@ -27,6 +48,11 @@ dev = [
     "mypy>=1.11",
     "types-pyserial",
 ]
+
+[project.urls]
+Homepage = "https://github.com/BonBear/VellemanLabPowersupply3005D"
+Issues = "https://github.com/BonBear/VellemanLabPowersupply3005D/issues"
+Changelog = "https://github.com/BonBear/VellemanLabPowersupply3005D/blob/main/CHANGELOG.md"
 
 [project.scripts]
 ps3005d = "ps3005d.cli:main"
@@ -37,6 +63,9 @@ ps3005d-gui = "ps3005d.gui.app:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/ps3005d"]
+
+[tool.hatch.build.targets.sdist]
+exclude = [".agents", ".claude", ".github", "AGENTS.md", "CLAUDE.md"]
 
 [tool.ruff]
 line-length = 100
