@@ -124,6 +124,66 @@ STRINGS: dict[str, dict[str, str]] = {
         "sv": "Exporterade {count} mätvärden till {path}",
         "de": "{count} Messwerte nach {path} exportiert",
     },
+    # sequences
+    "Manual": {"sv": "Manuell", "de": "Manuell"},
+    "Sequence": {"sv": "Sekvens", "de": "Sequenz"},
+    "Voltage (V)": {"sv": "Spänning (V)", "de": "Spannung (V)"},
+    "Current limit (A)": {"sv": "Strömgräns (A)", "de": "Strombegrenzung (A)"},
+    "Time (s)": {"sv": "Tid (s)", "de": "Zeit (s)"},
+    "Add step": {"sv": "Lägg till steg", "de": "Schritt hinzufügen"},
+    "Remove step": {"sv": "Ta bort steg", "de": "Schritt entfernen"},
+    "Open…": {"sv": "Öppna…", "de": "Öffnen…"},
+    "Save…": {"sv": "Spara…", "de": "Speichern…"},
+    "Rounds:": {"sv": "Antal varv:", "de": "Durchläufe:"},
+    "Leave output on after the last step": {
+        "sv": "Lämna utgången på efter sista steget",
+        "de": "Ausgang nach dem letzten Schritt eingeschaltet lassen",
+    },
+    "Start (switches the output on)": {
+        "sv": "Starta (slår på utgången)",
+        "de": "Starten (schaltet den Ausgang ein)",
+    },
+    "Stop (output off)": {"sv": "Stoppa (utgången av)", "de": "Stoppen (Ausgang aus)"},
+    "Total: {time}": {"sv": "Totalt: {time}", "de": "Gesamt: {time}"},
+    "Total: {time} per round, until stopped": {
+        "sv": "Totalt: {time} per varv, tills du stoppar",
+        "de": "Gesamt: {time} pro Durchlauf, bis zum Stoppen",
+    },
+    "Step {step}/{steps} · round {round}/{rounds} · {left} s left": {
+        "sv": "Steg {step}/{steps} · varv {round}/{rounds} · {left} s kvar",
+        "de": "Schritt {step}/{steps} · Durchlauf {round}/{rounds} · noch {left} s",
+    },
+    "Not running": {"sv": "Inte igång", "de": "Läuft nicht"},
+    "Sequence finished": {"sv": "Sekvensen är klar", "de": "Sequenz beendet"},
+    "Sequence stopped": {"sv": "Sekvensen stoppades", "de": "Sequenz gestoppt"},
+    "Sequence aborted: the output switched off (OVP/OCP?)": {
+        "sv": "Sekvensen avbröts: utgången slogs av (OVP/OCP?)",
+        "de": "Sequenz abgebrochen: der Ausgang hat abgeschaltet (OVP/OCP?)",
+    },
+    "Sequence aborted because of an error": {
+        "sv": "Sekvensen avbröts på grund av ett fel",
+        "de": "Sequenz wegen eines Fehlers abgebrochen",
+    },
+    "OVP is on": {"sv": "OVP är på", "de": "OVP ist eingeschaltet"},
+    "Over-voltage protection is on. This supply often cuts the output when "
+    "the voltage setpoint changes while OVP is on, which stops the sequence.": {
+        "sv": "Överspänningsskyddet är på. Aggregatet bryter ofta utgången när "
+        "spänningen ändras medan OVP är på, och då stoppas sekvensen.",
+        "de": "Der Überspannungsschutz ist eingeschaltet. Das Netzgerät schaltet den "
+        "Ausgang oft ab, wenn sich die Sollspannung bei eingeschaltetem OVP ändert, "
+        "und die Sequenz wird dann gestoppt.",
+    },
+    "Turn OVP off during the sequence": {
+        "sv": "Stäng av OVP under sekvensen",
+        "de": "OVP während der Sequenz ausschalten",
+    },
+    "Run with OVP": {"sv": "Kör med OVP", "de": "Mit OVP ausführen"},
+    "Open sequence": {"sv": "Öppna sekvens", "de": "Sequenz öffnen"},
+    "Save sequence": {"sv": "Spara sekvens", "de": "Sequenz speichern"},
+    "Sequence files (*.csv *.ini *.txt)": {
+        "sv": "Sekvensfiler (*.csv *.ini *.txt)",
+        "de": "Sequenzdateien (*.csv *.ini *.txt)",
+    },
     # status bar
     "Not connected": {"sv": "Inte ansluten", "de": "Nicht verbunden"},
     "Connecting to {port}…": {"sv": "Ansluter till {port}…", "de": "Verbinde mit {port}…"},

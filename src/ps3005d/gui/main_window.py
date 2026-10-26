@@ -26,13 +26,24 @@ from PySide6.QtWidgets import (
     QPushButton,
     QSpinBox,
     QSplitter,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
 
 from ps3005d.gui import i18n
 from ps3005d.gui.i18n import tr
-from ps3005d.gui.worker import FAILED, PENDING, DeviceWorker, Sample
+from ps3005d.gui.sequence_panel import SequencePanel
+from ps3005d.gui.worker import (
+    FAILED,
+    PENDING,
+    SEQ_DONE,
+    SEQ_ERROR,
+    SEQ_STOPPED,
+    SEQ_TRIPPED,
+    DeviceWorker,
+    Sample,
+)
 from ps3005d.protocol import I_MAX, MEMORY_SLOTS, V_MAX
 from ps3005d.sim import SimState
 from ps3005d.transport import list_serial_ports
@@ -50,6 +61,12 @@ SEND_DELAY_MS = 150
 HOLD_S = 1.5
 SETTINGS_LANGUAGE = "language"
 SETTINGS_CONFIRM_STORE = "confirm_store"
+SEQ_MESSAGES = {
+    SEQ_DONE: "Sequence finished",
+    SEQ_STOPPED: "Sequence stopped",
+    SEQ_TRIPPED: "Sequence aborted: the output switched off (OVP/OCP?)",
+    SEQ_ERROR: "Sequence aborted because of an error",
+}
 
 
 class SetpointSpin(QDoubleSpinBox):
@@ -100,6 +117,8 @@ class MainWindow(QMainWindow):
     req_store = Signal(int, float, float)
     req_read_memories = Signal()
     req_interval = Signal(int)
+    req_start_sequence = Signal(object, int, bool)
+    req_stop_sequence = Signal()
 
     def __init__(
         self,
@@ -128,6 +147,8 @@ class MainWindow(QMainWindow):
         # slot -> (note, i.e. untranslated English key) for values not yet on the device
         self._mem_note: dict[int, str] = {}
         self._setpoints: tuple[float, float] | None = None
+        self._seq_running = False
+        self._restore_ovp_after_seq = False
         # control name -> monotonic time until which device read-backs are ignored
         self._hold: dict[str, float] = {}
         # Highest measured values since connect or the last reset.
@@ -164,6 +185,10 @@ class MainWindow(QMainWindow):
         self.req_store.connect(w.store)
         self.req_read_memories.connect(w.read_memories)
         self.req_interval.connect(w.set_interval)
+        self.req_start_sequence.connect(w.start_sequence)
+        self.req_stop_sequence.connect(w.stop_sequence)
+        w.sequence_progress.connect(self._on_seq_progress)
+        w.sequence_finished.connect(self._on_seq_finished)
         w.connected.connect(self._on_connected)
         w.disconnected.connect(self._on_disconnected)
         w.sample.connect(self._on_sample)
@@ -182,9 +207,18 @@ class MainWindow(QMainWindow):
         lv = QVBoxLayout(left)
         lv.setContentsMargins(0, 0, 0, 0)
         lv.addWidget(self._build_readouts())
-        lv.addWidget(self._build_controls())
-        lv.addWidget(self._build_memories())
-        lv.addStretch(1)
+        manual = QWidget()
+        mv = QVBoxLayout(manual)
+        mv.addWidget(self._build_controls())
+        mv.addWidget(self._build_memories())
+        mv.addStretch(1)
+        self.sequence_panel = SequencePanel(self._settings)
+        self.sequence_panel.start_requested.connect(self._start_sequence)
+        self.sequence_panel.stop_requested.connect(self.req_stop_sequence.emit)
+        self.tabs = QTabWidget()
+        self.tabs.addTab(manual, "")
+        self.tabs.addTab(self.sequence_panel, "")
+        lv.addWidget(self.tabs, 1)
         splitter.addWidget(left)
         splitter.addWidget(self._build_plots())
         splitter.setStretchFactor(1, 1)
@@ -432,6 +466,9 @@ class MainWindow(QMainWindow):
         self.ocp_box.setText(tr("OCP (cut output at current limit)"))
         self.ovp_box.setText(tr("OVP (cut output above voltage)"))
         self.memory_group.setTitle(tr("Memories"))
+        self.tabs.setTabText(0, tr("Manual"))
+        self.tabs.setTabText(1, tr("Sequence"))
+        self.sequence_panel.retranslate()
         for rcl, sto in self._mem_buttons:
             rcl.setText(tr("Recall"))
             rcl.setToolTip(tr("Load into the setpoints (the output stays as it is)"))
@@ -493,17 +530,21 @@ class MainWindow(QMainWindow):
             self.req_connect.emit(port, port == SIM_PORT)
 
     def _set_enabled(self, on: bool) -> None:
-        for w in (
+        always: list[QWidget] = [self.output_btn, self.ocp_box, self.ovp_box]
+        for w in always:
+            w.setEnabled(on)
+        # The running sequence owns the setpoints and the memories' RCL use.
+        manual = on and not self._seq_running
+        manual_widgets: list[QWidget] = [
             self.v_spin,
             self.i_spin,
-            self.output_btn,
-            self.ocp_box,
-            self.ovp_box,
             self.read_mem_btn,
             *(b for pair in self._mem_buttons for b in pair),
-        ):
-            w.setEnabled(on)
+        ]
+        for w in manual_widgets:
+            w.setEnabled(manual)
         self.port_box.setEnabled(not on)
+        self.sequence_panel.set_connected(on)
 
     def _on_connected(self, identity: str) -> None:
         self._connected = True
@@ -543,7 +584,7 @@ class MainWindow(QMainWindow):
             self.ocp_box.setChecked(s.ocp_on)
         if not self._held("ovp"):
             self.ovp_box.setChecked(s.ovp_on)
-        self.read_mem_btn.setEnabled(not s.output_on)
+        self.read_mem_btn.setEnabled(not s.output_on and not self._seq_running)
         if not self._paused:
             self._t.append(s.t)
             self._v.append(s.volts)
@@ -563,6 +604,60 @@ class MainWindow(QMainWindow):
         self.max_labels["volts"].setText(f"{m['volts']:.2f} V")
         self.max_labels["amps"].setText(f"{m['amps']:.3f} A")
         self.max_labels["watts"].setText(f"{m['watts']:.3f} W")
+
+    def _start_sequence(self, steps: list[object], repeat: int, leave_on: bool) -> None:
+        self._restore_ovp_after_seq = False
+        if self.ovp_box.isChecked():
+            choice = self._ask_ovp_for_sequence()
+            if choice == "cancel":
+                return
+            if choice == "off":
+                self._restore_ovp_after_seq = True
+                self._hold["ovp"] = time.monotonic() + HOLD_S
+                self.ovp_box.setChecked(False)
+                self.req_ovp.emit(False)
+        self._seq_running = True
+        self.sequence_panel.set_running(True)
+        self._set_enabled(self._connected)
+        for timer in self._send_timers.values():
+            timer.stop()
+        self.req_start_sequence.emit(steps, repeat, leave_on)
+
+    def _on_seq_progress(self, index: int, rnd: int, left: float) -> None:
+        if self._seq_running:
+            self.sequence_panel.show_progress(index, rnd, left)
+
+    def _ask_ovp_for_sequence(self) -> str:
+        """'off' (disable OVP during the run), 'keep' or 'cancel'."""
+        box = QMessageBox(QMessageBox.Icon.Warning, tr("OVP is on"), "", parent=self)
+        box.setText(
+            tr(
+                "Over-voltage protection is on. This supply often cuts the output when "
+                "the voltage setpoint changes while OVP is on, which stops the sequence."
+            )
+        )
+        off = box.addButton(
+            tr("Turn OVP off during the sequence"), QMessageBox.ButtonRole.AcceptRole
+        )
+        keep = box.addButton(tr("Run with OVP"), QMessageBox.ButtonRole.DestructiveRole)
+        box.addButton(QMessageBox.StandardButton.Cancel)
+        box.setDefaultButton(off)
+        box.exec()
+        clicked = box.clickedButton()
+        return "off" if clicked is off else "keep" if clicked is keep else "cancel"
+
+    def _on_seq_finished(self, reason: str) -> None:
+        if self._restore_ovp_after_seq:
+            self._restore_ovp_after_seq = False
+            self._hold["ovp"] = time.monotonic() + HOLD_S
+            self.ovp_box.setChecked(True)
+            self.req_ovp.emit(True)
+        self._seq_running = False
+        self.sequence_panel.set_running(False)
+        self._set_enabled(self._connected)
+        message = tr(SEQ_MESSAGES.get(reason, SEQ_MESSAGES[SEQ_ERROR]))
+        self.sequence_panel.show_message(message)
+        self.statusBar().showMessage(message, 10000)
 
     def _held(self, name: str) -> bool:
         return time.monotonic() < self._hold.get(name, 0.0)

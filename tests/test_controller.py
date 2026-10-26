@@ -2,6 +2,7 @@ import pytest
 
 from ps3005d.controller import Controller, LimitError, Limits
 from ps3005d.device import PowerSupply
+from ps3005d.sequence import Step
 from ps3005d.sim import SimState, SimulatedTransport
 
 
@@ -115,3 +116,37 @@ def test_release_switches_output_off_and_reopens(ctl: Controller, sim: Simulated
     ctl.release()
     assert not sim.state.output
     assert ctl.status()["setpoint"]["volts"] == 5.0
+
+
+def test_run_sequence(ctl: Controller, sim: SimulatedTransport) -> None:
+    steps = [Step(5, 1, 0.5), Step(2, 0.1, 0.5)]
+    r = ctl.run_sequence(steps, 2, False, 0.2)
+    assert [(row["round"], row["step"]) for row in r["steps"]] == [(1, 1), (1, 2), (2, 1), (2, 2)]
+    first, second = r["steps"][0], r["steps"][1]
+    assert first["measured"]["volts"]["max"] == 5.0 and not first["entered_cc"]
+    assert second["measured"]["amps"]["max"] == 0.1 and second["entered_cc"]  # 10 ohm load
+    assert 1.9 < r["elapsed_s"] < 3.0
+    assert not sim.state.output
+
+
+def test_run_sequence_checks_limits_and_duration(ctl: Controller, sim: SimulatedTransport) -> None:
+    with pytest.raises(ValueError, match="step 2"):
+        ctl.run_sequence([Step(5, 0.5, 1), Step(15, 0.5, 1)], 1, False, 0.5)
+    with pytest.raises(LimitError):
+        ctl.run_sequence([Step(5, 0.5, 200)], 2, False, 0.5)
+    assert sim.log == []
+
+
+def test_run_sequence_aborts_on_trip(sim: SimulatedTransport) -> None:
+    class TripAt9V(SimulatedTransport):
+        def write(self, cmd: str) -> None:
+            super().write(cmd)
+            if cmd == "VSET1:09.00":
+                self.state.output = False
+
+    t = TripAt9V(sim.state)
+    ctl = Controller(lambda: PowerSupply(t), Limits(12, 1))
+    r = ctl.run_sequence([Step(5, 1, 0.5), Step(9, 1, 0.5), Step(3, 1, 0.5)], 1, True, 0.2)
+    assert "step 2" in r["warning"]
+    assert len(r["steps"]) == 2
+    assert not t.state.output

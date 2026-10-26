@@ -6,9 +6,12 @@ import argparse
 import os
 import sys
 import time
+from pathlib import Path
 
 from ps3005d import __version__
 from ps3005d import protocol as p
+from ps3005d import sequence as seq
+from ps3005d.controller import Controller, Limits
 from ps3005d.device import DeviceError, PowerSupply
 from ps3005d.sim import SimulatedTransport
 from ps3005d.transport import list_serial_ports
@@ -177,6 +180,34 @@ def cmd_monitor(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_sequence(args: argparse.Namespace) -> int:
+    steps = seq.load(Path(args.file))
+    print(
+        f"{len(steps)} steps, {seq.total_seconds(steps) * args.repeat:g} s total. "
+        "Output goes ON. Ctrl-C switches it off."
+    )
+    ctl = Controller(lambda: _open(args), Limits(max_duration_s=24 * 3600))
+    try:
+        result = ctl.run_sequence(steps, args.repeat, args.leave_on, args.interval)
+    except KeyboardInterrupt:
+        ctl.release()
+        print("stopped, output off")
+        return 130
+    for row in result["steps"]:
+        m = row["measured"]
+        print(
+            f"round {row['round']:3} step {row['step']:3}: set {row['set_volts']:6.2f} V "
+            f"{row['set_amps']:6.3f} A {row['seconds']:g} s | V {m['volts']['min']:.2f}-"
+            f"{m['volts']['max']:.2f}  A {m['amps']['min']:.3f}-{m['amps']['max']:.3f}"
+            + ("  CC" if row["entered_cc"] else "")
+        )
+    if "warning" in result:
+        print(f"warning: {result['warning']}", file=sys.stderr)
+    if not args.leave_on:
+        ctl.release()  # output off, port closed
+    return 1 if "warning" in result else 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="ps3005d", description=__doc__)
     parser.add_argument("--version", action="version", version=__version__)
@@ -213,6 +244,13 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("raw", help="send a raw command (queries end with '?')")
     s.add_argument("cmd")
     s.set_defaults(func=cmd_raw)
+
+    s = sub.add_parser("sequence", help="run a step sequence file (volts,amps,seconds CSV)")
+    s.add_argument("file")
+    s.add_argument("--repeat", type=int, default=1)
+    s.add_argument("--leave-on", action="store_true", help="keep the output on at the end")
+    s.add_argument("--interval", type=float, default=0.5, help="sampling interval (s)")
+    s.set_defaults(func=cmd_sequence)
 
     s = sub.add_parser("monitor", help="print measurements periodically")
     s.add_argument("--interval", type=float, default=0.5)

@@ -12,7 +12,10 @@ automated hardware testing.
 - **Output off by default** — only `set_output(on=true)` and `sweep_voltage` energize
   the output. The output is switched off when the server exits, on `release_port`,
   after a sweep (unless `leave_output_on`), and when a sweep detects a trip.
-- **Duration cap** — one `measure`/`sweep_voltage` call may run at most
+- **Sequences** — every step is checked against the limits before the output is
+  switched on. With OVP enabled the supply often trips when the voltage changes; the
+  result says so and suggests `set_protection(ovp=false)`.
+- **Duration cap** — one `measure`/`sweep_voltage`/`run_sequence` call may run at most
   `--max-duration-s` (default 300 s).
 - **Memory writes disabled** — `store_memory` is only offered with
   `--allow-memory-write`, because the memories belong to whoever uses the front panel.
@@ -30,6 +33,7 @@ automated hardware testing.
 | `set_protection(ocp?, ovp?)` | enable/disable OCP / OVP |
 | `measure(samples, interval_s)` | samples + min/max/mean |
 | `sweep_voltage(start, stop, step, current_limit, dwell_s, leave_output_on)` | step voltage, measure each point (I-V curve, brown-out) |
+| `run_sequence(steps, repeat, leave_output_on, sample_interval_s)` | steps of `{volts, amps, seconds}`; min/max/mean V/A/W and CC per step; output off after (and on trip) |
 | `recall_memory(slot)` | load M1–M5 (switches output off) |
 | `store_memory(slot, volts, amps)` | only with `--allow-memory-write` |
 | `release_port` | output off, close port |

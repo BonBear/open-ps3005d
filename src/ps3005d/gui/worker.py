@@ -25,9 +25,11 @@ from dataclasses import dataclass
 
 from PySide6.QtCore import QObject, QTimer, Signal, Slot
 
+from ps3005d import sequence as seq
 from ps3005d.device import PowerSupply
 from ps3005d.gui.i18n import tr
 from ps3005d.protocol import MEMORY_SLOTS, Mode
+from ps3005d.sequence import Step
 from ps3005d.sim import SimState, SimulatedTransport
 
 # Read the setpoints back every N polls.
@@ -38,6 +40,12 @@ RECALL_SETTLE_S = 0.3
 SAVED = "saved"
 PENDING = "pending"  # queued until the output is off
 FAILED = "failed"  # values reverted to the last known content
+
+# sequence_finished reasons
+SEQ_DONE = "done"
+SEQ_STOPPED = "stopped"  # by the user (output switched off)
+SEQ_TRIPPED = "tripped"  # output went off by itself (OVP/OCP)
+SEQ_ERROR = "error"
 
 
 @dataclass(frozen=True)
@@ -62,6 +70,8 @@ class DeviceWorker(QObject):
     setpoints = Signal(float, float)
     memories = Signal(object)  # dict[int, tuple[float, float]]
     memory_slot = Signal(int, float, float, str)  # slot, volts, amps, state
+    sequence_progress = Signal(int, int, float)  # step index, round index, seconds left in step
+    sequence_finished = Signal(str)  # SEQ_* reason
     error = Signal(str)
 
     def __init__(self, sim_state: SimState | None = None) -> None:
@@ -76,6 +86,13 @@ class DeviceWorker(QObject):
         self._mem: dict[int, tuple[float, float]] = {}
         self._pending: dict[int, tuple[float, float]] = {}
         self._sp = [0.0, 0.0]  # last known setpoints (volts, amps)
+        # Running sequence: steps, repeat (0 = forever), leave output on, start, position.
+        self._seq: list[Step] | None = None
+        self._seq_repeat = 1
+        self._seq_leave_on = False
+        self._seq_t0 = 0.0
+        self._seq_pos = (0, 0)
+        self._seq_timer: QTimer | None = None
 
     # -- helpers ----------------------------------------------------------
 
@@ -172,6 +189,8 @@ class DeviceWorker(QObject):
     def disconnect_device(self, output_off: bool = False) -> None:
         if self._timer is not None:
             self._timer.stop()
+        if self._seq is not None:
+            self._end_sequence(SEQ_STOPPED, switch_off=False)  # output_off below decides
         ps = self._ps
         if ps is None:
             return
@@ -218,6 +237,11 @@ class DeviceWorker(QObject):
             self._polls += 1
             if self._polls % SETPOINT_EVERY == 0:
                 self._emit_setpoints()
+            if self._seq is not None:
+                if not st.output_on and time.monotonic() - self._seq_t0 > 0.5:
+                    self._end_sequence(SEQ_TRIPPED, switch_off=False)
+                else:
+                    self._emit_seq_progress()
             if self._pending and not st.output_on:
                 self._flush_pending()
 
@@ -240,6 +264,8 @@ class DeviceWorker(QObject):
 
     @Slot(bool)
     def set_output(self, on: bool) -> None:
+        if not on and self._seq is not None:
+            self._end_sequence(SEQ_STOPPED, switch_off=False)
         if self._run(lambda: self._dev().output(on)):
             self.poll()
 
@@ -302,3 +328,95 @@ class DeviceWorker(QObject):
             self._read_memories()
 
         self._run(read)
+
+    # -- sequences --------------------------------------------------------
+
+    @Slot(object, int, bool)
+    def start_sequence(self, steps: list[Step], repeat: int, leave_on: bool) -> None:
+        """Run ``steps`` ``repeat`` times (0 = until stopped); switches the output on."""
+        try:
+            seq.validate(steps)
+        except ValueError as exc:
+            self.error.emit(str(exc))
+            self.sequence_finished.emit(SEQ_ERROR)
+            return
+        self._seq = list(steps)
+        self._seq_repeat = repeat
+        self._seq_leave_on = leave_on
+        self._seq_t0 = time.monotonic()
+        self._seq_pos = (0, 0)
+        first = self._seq[0]
+
+        def begin() -> None:
+            ps = self._dev()
+            ps.set_current(first.amps)
+            ps.set_voltage(first.volts)
+            ps.output(True)
+            self._sp = [first.volts, first.amps]
+            self.setpoints.emit(*self._sp)
+
+        if not self._run(begin):
+            self._end_sequence(SEQ_ERROR, switch_off=True)
+            return
+        if self._seq_timer is None:
+            self._seq_timer = QTimer(self)
+            self._seq_timer.setSingleShot(True)
+            self._seq_timer.timeout.connect(self._sequence_tick)
+        self._emit_seq_progress()
+        self._schedule_next_step()
+
+    @Slot()
+    def stop_sequence(self) -> None:
+        if self._seq is not None:
+            self._end_sequence(SEQ_STOPPED, switch_off=True)
+
+    def _elapsed(self) -> float:
+        return time.monotonic() - self._seq_t0
+
+    def _schedule_next_step(self) -> None:
+        assert self._seq is not None and self._seq_timer is not None
+        boundary = seq.next_boundary(self._seq, self._seq_repeat, self._elapsed())
+        if boundary is None:
+            self._end_sequence(SEQ_DONE, switch_off=not self._seq_leave_on)
+            return
+        self._seq_timer.start(max(int((boundary - self._elapsed()) * 1000) + 5, 0))
+
+    def _sequence_tick(self) -> None:
+        if self._seq is None:
+            return
+        pos = seq.position(self._seq, self._seq_repeat, self._elapsed())
+        if pos is None:
+            self._end_sequence(SEQ_DONE, switch_off=not self._seq_leave_on)
+            return
+        index, rnd, _ = pos
+        if (index, rnd) != self._seq_pos:
+            step = self._seq[index]
+
+            def apply() -> None:
+                ps = self._dev()
+                ps.set_current(step.amps)
+                ps.set_voltage(step.volts)
+                self._sp = [step.volts, step.amps]
+                self.setpoints.emit(*self._sp)
+
+            if not self._run(apply):
+                self._end_sequence(SEQ_ERROR, switch_off=True)
+                return
+            self._seq_pos = (index, rnd)
+            self._emit_seq_progress()
+        self._schedule_next_step()
+
+    def _emit_seq_progress(self) -> None:
+        assert self._seq is not None
+        pos = seq.position(self._seq, self._seq_repeat, self._elapsed())
+        if pos is not None:
+            index, rnd, left = pos
+            self.sequence_progress.emit(index, rnd, left)
+
+    def _end_sequence(self, reason: str, *, switch_off: bool) -> None:
+        self._seq = None
+        if self._seq_timer is not None:
+            self._seq_timer.stop()
+        if switch_off and self._ps is not None:
+            self._run(lambda: self._dev().output(False))
+        self.sequence_finished.emit(reason)

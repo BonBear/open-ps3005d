@@ -19,7 +19,9 @@ from dataclasses import dataclass
 from typing import Any
 
 from ps3005d import protocol as p
+from ps3005d import sequence as seq
 from ps3005d.device import PowerSupply
+from ps3005d.sequence import Step
 
 # Time for the output to settle after a change before it is measured.
 SETTLE_S = 0.3
@@ -252,6 +254,90 @@ class Controller:
                 if not leave_output_on or aborted:
                     ps.output(False)
             result: dict[str, Any] = {"points": rows, "status": self.status()}
+            if aborted:
+                result["warning"] = aborted
+            return result
+
+    def run_sequence(
+        self,
+        steps: list[Step],
+        repeat: int,
+        leave_output_on: bool,
+        sample_interval_s: float,
+    ) -> dict[str, Any]:
+        """Switch the output on and run the steps ``repeat`` times, measuring during each.
+
+        Steps start at absolute times (no drift from command latency). The output is
+        switched off at the end unless ``leave_output_on``, and always on a trip.
+        """
+        if repeat < 1:
+            raise ValueError("repeat must be >= 1")
+        if sample_interval_s < 0.2:
+            raise ValueError("sample_interval_s must be >= 0.2")
+        seq.validate(steps, max_volts=self.limits.max_volts, max_amps=self.limits.max_amps)
+        self._check_duration(seq.total_seconds(steps) * repeat)
+
+        with self._lock:
+            ps = self._dev()
+            ovp_on = ps.status().ovp_on
+            rows: list[dict[str, Any]] = []
+            aborted: str | None = None
+            t0 = time.monotonic()
+            deadline = t0
+            try:
+                for rnd in range(repeat):
+                    for n, step in enumerate(steps):
+                        ps.set_current(step.amps)
+                        ps.set_voltage(step.volts)
+                        if rnd == 0 and n == 0:
+                            ps.output(True)
+                        deadline += step.seconds
+                        samples: list[dict[str, float]] = []
+                        cc = False
+                        while True:
+                            time.sleep(min(sample_interval_s, max(deadline - time.monotonic(), 0)))
+                            m = ps.measure()
+                            st = ps.status()
+                            samples.append({"volts": m.volts, "amps": m.amps, "watts": m.watts})
+                            cc = cc or (st.output_on and st.mode is p.Mode.CC)
+                            if not st.output_on:
+                                aborted = (
+                                    f"output switched off in step {n + 1}, round {rnd + 1} "
+                                    + (
+                                        "(OVP is on: this supply often trips OVP when the "
+                                        "voltage setpoint changes; disable it with "
+                                        "set_protection(ovp=false) for sequences)"
+                                        if ovp_on
+                                        else "(OCP trip?)"
+                                    )
+                                )
+                                break
+                            if time.monotonic() >= deadline:
+                                break
+                        rows.append(
+                            {
+                                "step": n + 1,
+                                "round": rnd + 1,
+                                "set_volts": step.volts,
+                                "set_amps": step.amps,
+                                "seconds": step.seconds,
+                                "measured": _stats(samples),
+                                "entered_cc": cc,
+                            }
+                        )
+                        if aborted:
+                            break
+                    if aborted:
+                        break
+            finally:
+                if not leave_output_on or aborted:
+                    ps.output(False)
+            result: dict[str, Any] = {
+                "steps": rows,
+                "ovp_enabled": ovp_on,
+                "elapsed_s": round(time.monotonic() - t0, 2),
+                "status": self.status(),
+            }
             if aborted:
                 result["warning"] = aborted
             return result

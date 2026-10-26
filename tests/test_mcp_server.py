@@ -74,3 +74,19 @@ def test_store_memory_only_when_allowed(sim: SimulatedTransport) -> None:
     _run(sim, names)
     allowed = True
     _run(sim, names, allow_memory_write=True)
+
+
+def test_run_sequence_tool(sim: SimulatedTransport) -> None:
+    async def body(client: Client) -> None:
+        steps = [
+            {"volts": 5, "amps": 0.5, "seconds": 0.5},
+            {"volts": 20, "amps": 0.5, "seconds": 0.5},
+        ]
+        r = await client.call_tool("run_sequence", {"steps": steps})
+        assert r.is_error and "step 2" in _text(r)  # 20 V is above the 12 V limit
+        r = await client.call_tool("run_sequence", {"steps": steps[:1], "repeat": 2})
+        assert not r.is_error
+        assert len(json.loads(_text(r))["steps"]) == 2
+
+    _run(sim, body)
+    assert not sim.state.output

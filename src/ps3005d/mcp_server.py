@@ -17,10 +17,12 @@ import serial
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
+from pydantic import BaseModel, Field
 
 from ps3005d import __version__
 from ps3005d.controller import Controller, Limits
 from ps3005d.device import DeviceError, PowerSupply
+from ps3005d.sequence import Step
 from ps3005d.sim import SimState, SimulatedTransport
 
 PORT_ENV = "PS3005D_PORT"
@@ -45,6 +47,12 @@ ENERGIZE = ToolAnnotations(read_only_hint=False, destructive_hint=True, open_wor
 
 
 T = TypeVar("T")
+
+
+class SequenceStep(BaseModel):
+    volts: float = Field(ge=0, description="Voltage setpoint for this step")
+    amps: float = Field(ge=0, description="Current limit for this step")
+    seconds: float = Field(gt=0, description="How long the step lasts (>= 0.5 s)")
 
 
 def _guard(fn: Callable[[], T]) -> T:
@@ -127,6 +135,22 @@ def build_server(ctl: Controller, *, allow_memory_write: bool = False) -> MCPSer
             """Program memory M1-M5 with voltage/current, without changing the active setpoints.
             Overwrites what the user stored in that slot."""
             return _guard(lambda: ctl.store_memory(slot, volts, amps))
+
+    @mcp.tool(annotations=ENERGIZE)
+    def run_sequence(
+        steps: list[SequenceStep],
+        repeat: int = 1,
+        leave_output_on: bool = False,
+        sample_interval_s: float = 0.5,
+    ) -> dict[str, Any]:
+        """Switch the output on and run voltage/current steps (e.g. a power-cycle or
+        brown-out profile), repeated `repeat` times. Returns min/max/mean V, A, W per step
+        and whether the supply entered CC mode. The output is switched off afterwards unless
+        leave_output_on is true, and always if it trips. Blocks until done (max duration
+        is the operator's limit). Note: with OVP enabled this supply often cuts the output
+        when the voltage setpoint changes; switch OVP off for sequences that change voltage."""
+        plan = [Step(s.volts, s.amps, s.seconds) for s in steps]
+        return _guard(lambda: ctl.run_sequence(plan, repeat, leave_output_on, sample_interval_s))
 
     @mcp.tool(annotations=CONTROL)
     def release_port() -> dict[str, Any]:

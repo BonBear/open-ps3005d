@@ -14,6 +14,8 @@ from PySide6.QtCore import QEventLoop, QSettings, QTimer
 from PySide6.QtWidgets import QApplication
 
 from ps3005d.gui.main_window import SIM_PORT, MainWindow
+from ps3005d.gui.sequence_panel import SequencePanel
+from ps3005d.sequence import Step
 from ps3005d.sim import SimState
 
 
@@ -242,3 +244,76 @@ def test_switch_language_while_connected(win: MainWindow, sim: SimState) -> None
 
     win.set_language("en")
     assert win.connect_btn.text() == "Disconnect"
+
+
+def _run_steps(win: MainWindow, steps: list[Step], rounds: int = 1, leave_on: bool = False) -> None:
+    panel = win.sequence_panel
+    panel.set_steps(steps)
+    panel.rounds.setValue(rounds)
+    panel.leave_on.setChecked(leave_on)
+    panel.start_btn.click()
+
+
+def test_sequence_runs_rounds_and_switches_off(win: MainWindow, sim: SimState) -> None:
+    seen: list[tuple[float, float]] = []
+    win.worker.setpoints.connect(lambda v, i: seen.append((round(v, 2), round(i, 3))))
+    _run_steps(win, [Step(5, 1, 0.5), Step(2, 0.2, 0.5)], rounds=2)
+    wait_until(lambda: sim.output)
+    assert not win.v_spin.isEnabled()  # manual setpoints locked while running
+    assert not win.sequence_panel.start_btn.isEnabled()
+    wait_until(lambda: "finished" in win.sequence_panel.progress_label.text(), 5000)
+    assert not sim.output
+    assert win.v_spin.isEnabled()
+    # Periodic read-backs repeat values; keep only the changes.
+    changes = [sp for k, sp in enumerate(seen) if k == 0 or sp != seen[k - 1]]
+    applied = [sp for sp in changes if sp in ((5.0, 1.0), (2.0, 0.2))]
+    assert applied[:4] == [(5.0, 1.0), (2.0, 0.2), (5.0, 1.0), (2.0, 0.2)]
+
+
+def test_sequence_stop_button(win: MainWindow, sim: SimState) -> None:
+    _run_steps(win, [Step(5, 1, 30)])
+    wait_until(lambda: sim.output)
+    wait_until(lambda: "1/1" in win.sequence_panel.progress_label.text())
+    win.sequence_panel.stop_btn.click()
+    wait_until(lambda: not sim.output)
+    wait_until(lambda: "stopped" in win.sequence_panel.progress_label.text())
+
+
+def test_sequence_aborts_when_output_trips(win: MainWindow, sim: SimState) -> None:
+    _run_steps(win, [Step(5, 1, 30)])
+    wait_until(lambda: sim.output)
+    pump(700)
+    sim.output = False  # OCP/OVP trip on the device
+    wait_until(lambda: "OVP/OCP" in win.sequence_panel.progress_label.text())
+    assert win.sequence_panel.start_btn.isEnabled()
+
+
+def test_sequence_leave_output_on(win: MainWindow, sim: SimState) -> None:
+    _run_steps(win, [Step(3.3, 0.5, 0.5)], leave_on=True)
+    wait_until(lambda: "finished" in win.sequence_panel.progress_label.text(), 3000)
+    assert sim.output and sim.vset == 3.3
+
+
+def test_sequence_table_is_remembered(win: MainWindow, app: QApplication) -> None:
+    win.sequence_panel.set_steps([Step(1.5, 0.25, 7)])
+    other = SequencePanel(win._settings)
+    assert other.steps() == [Step(1.5, 0.25, 7)]
+
+
+@pytest.mark.parametrize(("choice", "runs"), [("off", True), ("cancel", False)])
+def test_sequence_with_ovp_on_asks(
+    win: MainWindow, sim: SimState, monkeypatch: pytest.MonkeyPatch, choice: str, runs: bool
+) -> None:
+    win.ovp_box.click()
+    wait_until(lambda: sim.ovp)
+    pump(1600)  # past the click hold
+    monkeypatch.setattr(win, "_ask_ovp_for_sequence", lambda: choice)
+    _run_steps(win, [Step(3, 0.5, 0.5)])
+    if runs:
+        wait_until(lambda: sim.output)
+        assert not sim.ovp  # off while the sequence runs
+        wait_until(lambda: "finished" in win.sequence_panel.progress_label.text(), 3000)
+        wait_until(lambda: sim.ovp)  # restored afterwards
+    else:
+        pump(500)
+        assert not sim.output and sim.ovp

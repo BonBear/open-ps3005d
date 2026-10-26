@@ -19,6 +19,10 @@ DYNAMIC_KEYS = {
     "not saved yet – saved when output is turned off",
     "saving failed – previous value shown",
     "saving…",
+    "Sequence finished",
+    "Sequence stopped",
+    "Sequence aborted: the output switched off (OVP/OCP?)",
+    "Sequence aborted because of an error",
 }
 
 

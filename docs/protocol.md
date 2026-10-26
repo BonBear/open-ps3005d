@@ -57,3 +57,20 @@ simulator reproduces the stuck bit.
 
 Vendor app files in `PC_SOFTWARE/` (LabVIEW build): `1.ini` holds M1–M5 V/I
 values, `2.ini` looks like a 10-step sequence table (`step, V, I, seconds`).
+
+## OVP behaviour when the voltage changes (observed 2026-10-26)
+
+With OVP enabled the output was cut in these cases (no load, 0.1 A limit):
+
+| Sequence of commands | Result |
+|---|---|
+| output on at 3.3 V, then `OVP1`, then `VSET1:05.00` | cut |
+| `OVP1` at 5 V, output on, then `VSET1:03.30` (lowering) | cut |
+| `OVP1` at 3.3 V, `VSET1:05.00`, then output on | cut (does not start) |
+| `OVP1` at 3.3 V, output on, then `VSET1:05.00` | **not** cut |
+| a GUI sequence 3.3 → 5 V with OVP on | cut at 4.28 V |
+
+No consistent threshold rule emerged; OVP behaves like a fixed limit that does not
+follow setpoint changes reliably. After a trip, `OVP0`+`OVP1` and `OUT1` were needed
+and the output still stayed off at a setpoint above the old one. Sequences should run
+with OVP off (the GUI offers to switch it off for the run and back on afterwards).

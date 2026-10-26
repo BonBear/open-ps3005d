@@ -22,6 +22,7 @@ ps3005d output on
 ps3005d store 3 12 1.0             # program M3 without applying it
 ps3005d recall 3                   # (switches output off, per manual)
 ps3005d monitor --interval 0.5 --csv log.csv
+ps3005d sequence steps.csv --repeat 3   # output ON; volts,amps,seconds per row
 ps3005d --sim status               # built-in simulator, no hardware
 ```
 
@@ -53,6 +54,12 @@ Polls at ~4–5 Hz (limited by the supply's command pacing).
   and the write happens when you switch the output off,
   because the firmware can only store by recalling the slot, which cuts the output.
   The store confirmation has "Don't show again"; re-enable it under **Settings**.
+- **Sequence** tab: a table of steps (voltage, current limit, seconds), rounds (∞
+  possible), optional "leave output on". Start switches the output on; Stop or a trip
+  (output switching off) ends the run. The table is remembered; open/save as CSV
+  (`volts,amps,seconds`) or load the vendor app's step table (`2.ini`). If OVP is on,
+  you're offered to switch it off for the run, because this supply often trips OVP
+  when the voltage setpoint changes (see [docs/protocol.md](docs/protocol.md)).
 - Closing the window switches the output off (and writes waiting memories) unless
   "Output off on exit" is unchecked.
 
