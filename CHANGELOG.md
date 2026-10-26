@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Python 3.11: the GUI could abort ("deallocating None") after drawing graphs for a
+  while, caused by a refcount bug in PySide6 6.12.0. Python 3.11 now installs
+  PySide6 below 6.12.
+
 ## [0.1.0] - 2026-10-26
 
 First release.

@@ -2,6 +2,7 @@
 
 import os
 import socket
+import sys
 import threading
 from collections.abc import Callable, Iterator
 from pathlib import Path
@@ -17,6 +18,7 @@ import httpx2
 from mcp.client import Client
 from mcp.client.streamable_http import streamable_http_client
 from PySide6.QtCore import QEventLoop, QSettings, QTimer
+from PySide6.QtGui import QImage, QPainter
 from PySide6.QtWidgets import QApplication
 
 from ps3005d.gui.main_window import SIM_PORT, MainWindow
@@ -434,3 +436,17 @@ def test_ai_server_starts_from_saved_setting(app: QApplication, sim: SimState) -
     finally:
         second.ai_panel.enable.setChecked(False)
         second.close()
+
+
+def test_qt_painting_keeps_none_refcount(app: QApplication) -> None:
+    """PySide6 6.12.0 decrefs None in QPainter.setRenderHint, which aborts Python 3.11
+    after a while of drawing graphs (pyproject keeps 3.11 below 6.12). Python 3.12+
+    has an immortal None, so this always passes there."""
+    img = QImage(4, 4, QImage.Format.Format_ARGB32)
+    painter = QPainter(img)
+    before = sys.getrefcount(None)
+    for _ in range(500):
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    after = sys.getrefcount(None)
+    painter.end()
+    assert after - before > -50, "this PySide6 leaks None references; see pyproject.toml"
