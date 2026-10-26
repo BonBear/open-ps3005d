@@ -1,6 +1,6 @@
 # PS3005D Control
 
-[![CI](https://github.com/BonBear/VellemanLabPowersupply3005D/actions/workflows/ci.yml/badge.svg)](https://github.com/BonBear/VellemanLabPowersupply3005D/actions/workflows/ci.yml)
+[![CI](https://github.com/BonBear/open-ps3005d/actions/workflows/ci.yml/badge.svg)](https://github.com/BonBear/open-ps3005d/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)
 ![Windows | Linux](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-lightgrey.svg)
@@ -38,7 +38,7 @@ Korad/Tenma/RND supplies will probably work too, but they have not been tested.
 Requires Python 3.11 or newer. The package is not on PyPI yet; install it from GitHub:
 
 ```bash
-pip install "ps3005d[gui] @ git+https://github.com/BonBear/VellemanLabPowersupply3005D"
+pip install "ps3005d[gui] @ git+https://github.com/BonBear/open-ps3005d"
 ```
 
 The `gui` extra includes the MCP server. For the CLI and the standalone MCP server only,
@@ -144,8 +144,8 @@ in [docs/protocol.md](docs/protocol.md).
 ## Development
 
 ```bash
-git clone https://github.com/BonBear/VellemanLabPowersupply3005D
-cd VellemanLabPowersupply3005D
+git clone https://github.com/BonBear/open-ps3005d
+cd open-ps3005d
 python -m venv .venv
 .venv/bin/pip install -e ".[dev,gui]"     # Windows: .venv\Scripts\pip ...
 .venv/bin/ruff check . && .venv/bin/ruff format --check .

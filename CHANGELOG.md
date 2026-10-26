@@ -26,5 +26,5 @@ First release.
 - Workarounds for firmware quirks: `SAV<n>` writes the active memory, a stuck OVP
   status bit, OVP tripping on voltage changes, junk byte after `ISET1?`.
 
-[Unreleased]: https://github.com/BonBear/VellemanLabPowersupply3005D/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/BonBear/VellemanLabPowersupply3005D/releases/tag/v0.1.0
+[Unreleased]: https://github.com/BonBear/open-ps3005d/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/BonBear/open-ps3005d/releases/tag/v0.1.0

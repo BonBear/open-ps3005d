@@ -50,9 +50,9 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/BonBear/VellemanLabPowersupply3005D"
-Issues = "https://github.com/BonBear/VellemanLabPowersupply3005D/issues"
-Changelog = "https://github.com/BonBear/VellemanLabPowersupply3005D/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/BonBear/open-ps3005d"
+Issues = "https://github.com/BonBear/open-ps3005d/issues"
+Changelog = "https://github.com/BonBear/open-ps3005d/blob/main/CHANGELOG.md"
 
 [project.scripts]
 ps3005d = "ps3005d.cli:main"
