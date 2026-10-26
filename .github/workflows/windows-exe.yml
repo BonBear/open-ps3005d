@@ -1,0 +1,83 @@
+name: Windows build
+
+# Builds open-ps3005d-<version>-windows-x64.zip (ps3005d-gui.exe, ps3005d.exe,
+# ps3005d-mcp.exe) with PyInstaller, smoke-tests it and attaches it to a release:
+# automatically for pushed v* tags, or manually for an existing release.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Attach the zip to this existing release (empty: only keep it as a workflow artifact)"
+        required: false
+        default: ""
+
+permissions:
+  contents: write  # upload release assets
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install ".[gui]" "pyinstaller>=6.10"
+
+      - name: Build
+        run: pyinstaller packaging/windows/ps3005d.spec --noconfirm
+
+      - name: Smoke test
+        shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          $d = "dist/open-ps3005d"
+          & "$d/ps3005d.exe" --version
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          & "$d/ps3005d.exe" --sim status
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          # The GUI exe has no console; it writes a report instead.
+          $p = Start-Process "$d/ps3005d-gui.exe" -ArgumentList "--self-test", "selftest.txt" -Wait -PassThru
+          Get-Content selftest.txt
+          if ($p.ExitCode -ne 0) { exit 1 }
+
+      - name: Zip
+        id: zip
+        shell: pwsh
+        run: |
+          $version = (Select-String -Path pyproject.toml -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
+          $name = "open-ps3005d-$version-windows-x64.zip"
+          Compress-Archive -Path dist/open-ps3005d -DestinationPath $name
+          $hash = (Get-FileHash $name -Algorithm SHA256).Hash.ToLower()
+          "$hash  $name" | Out-File -Encoding ascii "$name.sha256"
+          Get-Content "$name.sha256"
+          "{0:N1} MB" -f ((Get-Item $name).Length / 1MB)
+          "name=$name" >> $env:GITHUB_OUTPUT
+
+      - uses: actions/upload-artifact@v5
+        with:
+          name: ${{ steps.zip.outputs.name }}
+          path: |
+            ${{ steps.zip.outputs.name }}
+            ${{ steps.zip.outputs.name }}.sha256
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/') || inputs.release_tag != ''
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_TAG: ${{ inputs.release_tag }}
+          REF_NAME: ${{ github.ref_name }}
+          ZIP: ${{ steps.zip.outputs.name }}
+        run: |
+          $tag = if ($env:INPUT_TAG) { $env:INPUT_TAG } else { $env:REF_NAME }
+          gh release upload $tag $env:ZIP "$($env:ZIP).sha256" --clobber

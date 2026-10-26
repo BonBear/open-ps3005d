@@ -450,3 +450,11 @@ def test_qt_painting_keeps_none_refcount(app: QApplication) -> None:
     after = sys.getrefcount(None)
     painter.end()
     assert after - before > -50, "this PySide6 leaks None references; see pyproject.toml"
+
+
+def test_self_test_passes(app: QApplication, tmp_path: Path) -> None:
+    from ps3005d.gui.app import self_test
+
+    report = tmp_path / "report.txt"
+    assert self_test(report) == 0, report.read_text()
+    assert report.read_text().strip().endswith("RESULT OK")

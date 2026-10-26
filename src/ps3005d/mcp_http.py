@@ -74,7 +74,10 @@ class HttpMcpServer:
         """Start serving; raises OSError if it does not come up (e.g. port in use)."""
         self.stop()
         app = BearerKeyMiddleware(mcp.streamable_http_app(host=HOST), key)
-        config = uvicorn.Config(app, host=HOST, port=port, log_level="warning", lifespan="on")
+        # log_config=None: no uvicorn handlers on sys.stderr, which is None in a windowed exe.
+        config = uvicorn.Config(
+            app, host=HOST, port=port, log_level="warning", lifespan="on", log_config=None
+        )
         server = uvicorn.Server(config)
         thread = threading.Thread(target=server.run, name="mcp-http", daemon=True)
         thread.start()

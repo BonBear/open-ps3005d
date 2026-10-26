@@ -6,6 +6,18 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Windows build: `open-ps3005d-<version>-windows-x64.zip` with `ps3005d-gui.exe`,
+  `ps3005d.exe` and `ps3005d-mcp.exe` (no Python needed), built and smoke-tested by
+  GitHub Actions and attached to releases.
+- App icon.
+
+### Changed
+
+- The GUI depends on `PySide6-Essentials` instead of the full `PySide6`, which makes
+  installs much smaller (about 250 MB instead of 670 MB of Qt).
+
 ## [0.1.0] - 2026-10-26
 
 First release.

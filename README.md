@@ -35,6 +35,19 @@ Korad/Tenma/RND supplies will probably work too, but they have not been tested.
 
 ## Installation
 
+### Windows: ready-made programs (no Python needed)
+
+Download `open-ps3005d-<version>-windows-x64.zip` from the
+[latest release](https://github.com/BonBear/open-ps3005d/releases/latest), unzip it
+anywhere and start `ps3005d-gui.exe`. The folder also contains `ps3005d.exe` (command
+line) and `ps3005d-mcp.exe` (MCP server).
+
+The programs are not code-signed yet, so the first start shows *"Windows protected your
+PC"*: choose *More info → Run anyway*. The supply appears as a COM port with the driver
+built into Windows 10/11.
+
+### With Python (Windows and Linux)
+
 Requires Python 3.11 or newer. The package is not on PyPI yet; install it from GitHub:
 
 ```bash
@@ -44,8 +57,7 @@ pip install "ps3005d[gui] @ git+https://github.com/BonBear/open-ps3005d"
 The `gui` extra includes the MCP server. For the CLI and the standalone MCP server only,
 use `ps3005d[mcp]`; for just the CLI, plain `ps3005d`.
 
-**Windows:** the supply shows up as a COM port ("USB Virtual COM") with the driver built
-into Windows 10/11. Start the app with `ps3005d-gui`.
+**Windows:** start the app with `ps3005d-gui`.
 
 **Linux:** the supply appears as `/dev/ttyACM0`. Your user needs to be in the `dialout`
 group. Optionally install [docs/udev/99-ps3005d.rules](docs/udev/99-ps3005d.rules); it
@@ -97,6 +109,9 @@ Without the GUI, run the standalone server (stdio), for example on a test machin
 ```bash
 ps3005d-mcp --port /dev/ttyACM0 --max-volts 12 --max-amps 1
 ```
+
+With the Windows zip, use the full path to `ps3005d-mcp.exe` and a COM port, e.g.
+`C:\Tools\open-ps3005d\ps3005d-mcp.exe --port COM3 --max-volts 12 --max-amps 1`.
 
 Tools, safety model and client setup are described in [docs/mcp.md](docs/mcp.md).
 
@@ -162,6 +177,7 @@ PS3005D_PORT=/dev/ttyACM0 .venv/bin/pytest -m hardware   # real unit, no load
 | `src/ps3005d/mcp_server.py`, `mcp_http.py` | MCP tools (stdio and local HTTP) |
 | `src/ps3005d/gui/` | PySide6 app (worker thread, panels, translations) |
 | `docs/` | protocol notes, MCP guide, udev rule |
+| `packaging/` | Windows build (PyInstaller spec, icon); built by `.github/workflows/windows-exe.yml` |
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines and [CHANGELOG.md](CHANGELOG.md)
 for changes.

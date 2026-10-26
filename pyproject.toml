@@ -39,10 +39,12 @@ mcp = [
 ]
 gui = [
     "ps3005d[mcp]",  # the GUI can host the MCP server (AI tab)
-    # PySide6 6.12.0 has a refcount bug (QPainter.setRenderHint decrefs None) that
-    # aborts Python 3.11 after a while of drawing graphs; 3.12+ has an immortal None.
-    "PySide6>=6.7,<6.12; python_version < '3.12'",
-    "PySide6>=6.7; python_version >= '3.12'",
+    # Essentials (QtCore/Gui/Widgets/Svg/OpenGL/Test) is all we and pyqtgraph use; the
+    # full PySide6 adds WebEngine, PDF, 3D... (hundreds of MB).
+    # 6.12.0 has a refcount bug (QPainter.setRenderHint decrefs None) that aborts
+    # Python 3.11 after a while of drawing graphs; 3.12+ has an immortal None.
+    "PySide6-Essentials>=6.7,<6.12; python_version < '3.12'",
+    "PySide6-Essentials>=6.7; python_version >= '3.12'",
     "pyqtgraph>=0.13",
 ]
 dev = [
