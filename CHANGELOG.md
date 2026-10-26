@@ -6,12 +6,6 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
-### Fixed
-
-- Python 3.11: the GUI could abort ("deallocating None") after drawing graphs for a
-  while, caused by a refcount bug in PySide6 6.12.0. Python 3.11 now installs
-  PySide6 below 6.12.
-
 ## [0.1.0] - 2026-10-26
 
 First release.
@@ -31,6 +25,11 @@ First release.
   can share the supply.
 - Workarounds for firmware quirks: `SAV<n>` writes the active memory, a stuck OVP
   status bit, OVP tripping on voltage changes, junk byte after `ISET1?`.
+
+### Known issues
+
+- PySide6 6.12.0 has a refcount bug that aborts Python 3.11 while drawing graphs, so
+  Python 3.11 installs PySide6 below 6.12. Python 3.12 and newer are not affected.
 
 [Unreleased]: https://github.com/BonBear/open-ps3005d/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/BonBear/open-ps3005d/releases/tag/v0.1.0
